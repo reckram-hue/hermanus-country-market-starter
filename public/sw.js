@@ -1,6 +1,6 @@
 // public/sw.js
 // Very tiny service worker good enough for dev installs.
-const CACHE = "hcm-dev-v1";
+const CACHE = "hcm-__CACHE_VERSION__";
 const APP_SHELL = [
   "/",
   "/index.html",
