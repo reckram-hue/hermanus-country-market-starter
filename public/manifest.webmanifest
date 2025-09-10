@@ -2,14 +2,14 @@
   "name": "Hermanus Country Market",
   "short_name": "HCM",
   "description": "Trader & Admin app for the Hermanus Country Market.",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": "/hermanus-country-market-starter/",
+  "scope": "/hermanus-country-market-starter/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#0ea5e9",
   "lang": "en-ZA",
   "icons": [
-    { "src": "/icons/app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/icons/app-icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+    { "src": "icons/app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/app-icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
   ]
 }
