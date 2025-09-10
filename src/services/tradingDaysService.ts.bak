@@ -1,0 +1,147 @@
+// src/services/tradingDaysService.ts
+// LocalStorage-backed service for Managing Trading Days (publish/unpublish/capacity).
+// Used by Admin > TradingDays page.
+
+import { DayType } from '../types';
+
+export interface TradingDay {
+  id: string;              // same as date (YYYY-MM-DD)
+  date: string;            // YYYY-MM-DD
+  maxBookings: number;     // stall capacity
+  currentBookings: number; // mock count
+  isPublished: boolean;
+  type: DayType;           // DAY or NIGHT
+  isLocked: boolean;       // whether bookings are locked
+}
+
+export type { DayType } from '../types';
+
+const STORAGE_KEY = 'hcm_trading_days_v1';
+
+// --------------------------- helpers ----------------------------------------
+
+function loadAll(): Record<string, TradingDay> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, TradingDay>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveAll(map: Record<string, TradingDay>) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+}
+
+function toIso(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function sameMonth(iso: string, year: number, month1to12: number): boolean {
+  const [y, m] = iso.split('-');
+  return Number(y) === year && Number(m) === month1to12;
+}
+
+function seedIfEmpty() {
+  const all = loadAll();
+  if (Object.keys(all).length > 0) return;
+
+  // Seed next 6 Saturdays as published, capacity 90
+  const today = new Date();
+  let added = 0;
+  let probe = new Date(today);
+  while (added < 6) {
+    probe.setDate(probe.getDate() + 1);
+    if (probe.getDay() === 6) {
+      const iso = toIso(probe);
+      all[iso] = {
+        id: iso,
+        date: iso,
+        maxBookings: 90,
+        currentBookings: 0,
+        isPublished: true,
+        type: 'DAY',
+        isLocked: false,
+      };
+      added++;
+    }
+  }
+  saveAll(all);
+}
+
+// ----------------------------- public API -----------------------------------
+
+/** Return all published TradingDays for the given year & month (1..12). */
+export async function getDaysForMonth(
+  year: number,
+  month1to12: number
+): Promise<TradingDay[]> {
+  seedIfEmpty();
+  const all = loadAll();
+  return Object.values(all)
+    .filter((d) => d.isPublished && sameMonth(d.date, year, month1to12))
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+
+/** Publish one or more ISO date strings (YYYY-MM-DD) with a type and capacity. */
+export async function publishDays(dates: string[], config: { type: DayType; capacity: number }): Promise<TradingDay[]> {
+  const all = loadAll();
+  const results: TradingDay[] = [];
+  for (const iso of dates) {
+    const day: TradingDay = {
+      id: iso,
+      date: iso,
+      maxBookings: config.capacity,
+      currentBookings: all[iso]?.currentBookings ?? 0,
+      isPublished: true,
+      type: config.type,
+      isLocked: all[iso]?.isLocked ?? false,
+    };
+    all[iso] = day;
+    results.push(day);
+  }
+  saveAll(all);
+  return results;
+}
+
+/** Change stall capacity for a published day (creates it if missing). */
+export async function setCapacity(dateIso: string, capacity: number): Promise<void> {
+  const all = loadAll();
+  const existing = all[dateIso];
+  if (!existing) {
+    all[dateIso] = {
+      id: dateIso,
+      date: dateIso,
+      maxBookings: capacity,
+      currentBookings: 0,
+      isPublished: true,
+      type: 'DAY',
+      isLocked: false,
+    };
+  } else {
+    all[dateIso] = { ...existing, maxBookings: capacity };
+  }
+  saveAll(all);
+}
+
+/** Unpublish (remove) a day from the calendar. */
+export async function unpublishDay(dateIso: string): Promise<void> {
+  const all = loadAll();
+  if (all[dateIso]) {
+    delete all[dateIso];
+    saveAll(all);
+  }
+}
+
+/** Toggle the locked status of a published day. */
+export async function toggleLock(dateIso: string, locked: boolean): Promise<void> {
+  const all = loadAll();
+  const existing = all[dateIso];
+  if (existing) {
+    all[dateIso] = { ...existing, isLocked: locked };
+    saveAll(all);
+  }
+}

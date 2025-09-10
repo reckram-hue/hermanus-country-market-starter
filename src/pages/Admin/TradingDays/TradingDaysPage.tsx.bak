@@ -1,0 +1,290 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import Card from '../../../components/shared/Card';
+import Button from '../../../components/ui/Button';
+import {
+  getDaysForMonth,
+  publishDays,
+  setCapacity,
+  unpublishDay,
+  toggleLock,
+  type TradingDay,
+  type DayType,
+} from '../../../services/tradingDaysService';
+
+const fmt = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+const endOfMonth = (dt: Date) => new Date(dt.getFullYear(), dt.getMonth() + 1, 0);
+const startOfMonth = (dt: Date) => new Date(dt.getFullYear(), dt.getMonth(), 1);
+const isSaturday = (d: Date) => d.getDay() === 6;
+
+const TradingDaysPage: React.FC = () => {
+  const [cursor, setCursor] = useState(startOfMonth(new Date()));
+  const [published, setPublished] = useState<TradingDay[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const [publishType, setPublishType] = useState<DayType>('DAY');
+  const [capacity, setCapacityInput] = useState<number>(90);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const y = cursor.getFullYear();
+    const m = cursor.getMonth() + 1;
+    getDaysForMonth(y, m).then(setPublished);
+    setSelected(new Set());
+    setError(null);
+  }, [cursor]);
+
+  const daysInGrid = useMemo(() => {
+    const first = startOfMonth(cursor);
+    const last = endOfMonth(cursor);
+    const blanks = Array(first.getDay()).fill(null);
+    const days = [];
+    for (let i = 1; i <= last.getDate(); i++) {
+      days.push(new Date(cursor.getFullYear(), cursor.getMonth(), i));
+    }
+    return [...blanks, ...days];
+  }, [cursor]);
+
+  const publishedByDate = useMemo(() => {
+    const map = new Map<string, TradingDay>();
+    for (const d of published) map.set(d.date, d);
+    return map;
+  }, [published]);
+
+  const monthLabel = useMemo(
+    () => cursor.toLocaleString('en-ZA', { month: 'long', year: 'numeric' }),
+    [cursor]
+  );
+
+  const togglePick = (dateStr: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(dateStr)) next.delete(dateStr);
+      else next.add(dateStr);
+      return next;
+    });
+  };
+
+  const handlePublish = async () => {
+    if (selected.size === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const dates = Array.from(selected);
+      const saved = await publishDays(dates, { type: publishType, capacity });
+      const currentMap = new Map<string, TradingDay>();
+      for (const d of published) currentMap.set(d.date, d);
+      for (const d of saved) currentMap.set(d.date, d);
+      setPublished(Array.from(currentMap.values()).sort((a, b) => a.date.localeCompare(b.date)));
+      setSelected(new Set());
+    } catch (e: any) {
+      setError(e?.message || 'Failed to publish days');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleUnpublish = (dateStr: string) => {
+    unpublishDay(dateStr);
+    setPublished((prev) => prev.filter((d) => d.date !== dateStr));
+  };
+
+  const handleCapacityChange = (dateStr: string, cap: number) => {
+    setCapacity(dateStr, cap);
+    setPublished((prev) => prev.map((d) => (d.date === dateStr ? { ...d, maxBookings: cap } : d)));
+  };
+
+  const handleToggleLock = (dateStr: string, locked: boolean) => {
+    toggleLock(dateStr, locked);
+    setPublished((prev) => prev.map((d) => (d.date === dateStr ? { ...d, isLocked: locked } : d)));
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold text-slate-800">Trading Days</h1>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
+          >
+            ‹ Prev
+          </Button>
+          <div className="px-3 py-2 rounded-md bg-white border border-slate-200 text-slate-700 font-semibold">
+            {monthLabel}
+          </div>
+          <Button
+            variant="secondary"
+            onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
+          >
+            Next ›
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+        <Card title="Calendar">
+          <div className="grid grid-cols-7 gap-2 text-center text-xs text-slate-500 mb-2">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+              <div key={d}>{d}</div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-2">
+            {daysInGrid.map((d, idx) => {
+              if (!d) return <div key={`b-${idx}`} />;
+              const dateStr = fmt(d);
+              const pub = publishedByDate.get(dateStr);
+              const picked = selected.has(dateStr);
+
+              const base =
+                'h-20 rounded-lg border text-sm flex flex-col items-center justify-center select-none cursor-pointer';
+              const status = pub
+                ? 'border-emerald-400 bg-emerald-50 text-emerald-800'
+                : isSaturday(d)
+                ? 'border-sky-300 bg-sky-50 text-sky-800'
+                : 'border-slate-200 bg-white text-slate-700';
+              const ring = picked ? 'outline outline-2 outline-sky-500' : '';
+
+              return (
+                <div
+                  key={dateStr}
+                  className={`${base} ${status} ${ring}`}
+                  onClick={() => togglePick(dateStr)}
+                  title={
+                    pub
+                      ? `${pub.type === 'NIGHT' ? 'Night' : 'Day'} market • capacity ${pub.maxBookings}`
+                      : isSaturday(d)
+                      ? 'Suggested Saturday'
+                      : 'Non-standard day'
+                  }
+                >
+                  <div className="text-lg font-semibold">{d.getDate()}</div>
+                  {pub ? (
+                    <div className="text-[10px] mt-1 font-semibold">
+                      {pub.type === 'NIGHT' ? 'Night' : 'Day'} • cap {pub.maxBookings}
+                    </div>
+                  ) : isSaturday(d) ? (
+                    <div className="text-[10px] mt-1">Saturday</div>
+                  ) : (
+                    <div className="text-[10px] mt-1 text-slate-400">—</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 flex flex-col md:flex-row md:items-end gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600">Type</label>
+              <div className="flex gap-3 mt-1">
+                <label className="inline-flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="day-type"
+                    value="DAY"
+                    checked={publishType === 'DAY'}
+                    onChange={() => setPublishType('DAY')}
+                  />
+                  Day
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="day-type"
+                    value="NIGHT"
+                    checked={publishType === 'NIGHT'}
+                    onChange={() => setPublishType('NIGHT')}
+                  />
+                  Night (Dec/Jan)
+                </label>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600">Capacity (stalls)</label>
+              <input
+                type="number"
+                min={1}
+                value={capacity}
+                onChange={(e) => setCapacityInput(Math.max(1, Number(e.target.value || 0)))}
+                className="mt-1 w-32 px-3 py-2 border border-slate-300 rounded-md"
+              />
+            </div>
+            <div className="flex-1" />
+            <Button onClick={handlePublish} disabled={busy || selected.size === 0}>
+              {busy ? 'Publishing…' : `Publish selected (${selected.size})`}
+            </Button>
+          </div>
+          {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+        </Card>
+
+        <div className="xl:col-span-2">
+          <Card title="Published days (this month)">
+            {published.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                No published days in this month yet. Select dates in the calendar and click “Publish”.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-slate-200">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Date</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Type</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Capacity</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Locked</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {published.map((d) => (
+                      <tr key={d.date}>
+                        <td className="px-4 py-2 text-sm font-medium">{d.date}</td>
+                        <td className="px-4 py-2 text-sm">{d.type === 'NIGHT' ? 'Night' : 'Day'}</td>
+                        <td className="px-4 py-2">
+                          <input
+                            type="number"
+                            min={1}
+                            value={d.maxBookings}
+                            onChange={(e) =>
+                              handleCapacityChange(d.date, Math.max(1, Number(e.target.value || 0)))
+                            }
+                            className="w-24 px-2 py-1 border border-slate-300 rounded-md text-sm"
+                          />
+                        </td>
+                        <td className="px-4 py-2">
+                          <input
+                            type="checkbox"
+                            checked={d.isLocked}
+                            onChange={(e) => handleToggleLock(d.date, e.target.checked)}
+                          />
+                        </td>
+                        <td className="px-4 py-2 text-right">
+                          <Button
+                            variant="secondary"
+                            className="!py-1 !px-3 text-xs"
+                            onClick={() => handleUnpublish(d.date)}
+                          >
+                            Unpublish
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default TradingDaysPage;
