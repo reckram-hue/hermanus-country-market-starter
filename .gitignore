@@ -26,3 +26,7 @@ Thumbs.db
 # coverage & misc
 coverage/
 *.local
+
+# Local Claude/assistant files
+*.claude
+settings.local.json.claude
