@@ -1,28 +1,19 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import App from './components/App';
-import { AuthProvider } from './hooks/useAuth';
+// FULL DROP-IN for src/index.tsx
 
-const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement);
-root.render(
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App'
+
+// Register the PWA service worker with the correct scope for GitHub Pages
+// This works with vite-plugin-pwa
+import { registerSW } from 'virtual:pwa-register'
+registerSW({
+  immediate: true,
+  scope: import.meta.env.BASE_URL, // e.g. "/hermanus-country-market-starter/"
+})
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <AuthProvider>
-      <App />
-    </AuthProvider>
+    <App />
   </React.StrictMode>
-);
-
-// --- Service Worker registration (for PWA install in dev) ---
-if ('serviceWorker' in navigator) {
-  // In dev, Vite serves files from http://localhost:5173/
-  window.addEventListener('load', () => {
-    navigator.serviceWorker
-      .register('/sw.js')
-      .then(reg => {
-        console.log('[SW] registered', reg.scope);
-      })
-      .catch(err => {
-        console.warn('[SW] registration failed:', err);
-      });
-  });
-}
+)
