@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import Card from "../../../components/shared/Card";
 import {
   getDaysForMonth,
   publishDays,
@@ -8,75 +7,73 @@ import {
   type TradingDay,
 } from "../../../services/tradingDaysService";
 
-// --- helpers ---------------------------------------------------------------
-
-function monthName(year: number, month1to12: number) {
-  return new Date(year, month1to12 - 1, 1).toLocaleString(undefined, {
-    month: "long",
-    year: "numeric",
-  });
+/** Utility: month name like "September 2025" */
+function monthLabel(year: number, month1to12: number) {
+  const d = new Date(year, month1to12 - 1, 1);
+  return d.toLocaleString(undefined, { month: "long", year: "numeric" });
 }
 
-function isoFor(y: number, m1to12: number, d: number) {
-  const m = String(m1to12).padStart(2, "0");
-  const day = String(d).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function saturdaysInMonth(year: number, month1to12: number): string[] {
-  const month0 = month1to12 - 1;
-  const lastDay = new Date(year, month1to12, 0).getDate();
-  const out: string[] = [];
-  for (let d = 1; d <= lastDay; d++) {
-    const dt = new Date(year, month0, d);
-    if (dt.getDay() === 6) out.push(isoFor(year, month1to12, d));
+/** Compute all Saturdays in given month, returned as ISO (YYYY-MM-DD). */
+function saturdaysOfMonth(year: number, month1to12: number): string[] {
+  const result: string[] = [];
+  const first = new Date(year, month1to12 - 1, 1);
+  const last = new Date(year, month1to12, 0); // last day
+  const d = new Date(first);
+  while (d <= last) {
+    if (d.getDay() === 6) {
+      const iso = [
+        d.getFullYear(),
+        String(d.getMonth() + 1).padStart(2, "0"),
+        String(d.getDate()).padStart(2, "0"),
+      ].join("-");
+      result.push(iso);
+    }
+    d.setDate(d.getDate() + 1);
   }
-  return out;
+  return result;
 }
 
-// --- component -------------------------------------------------------------
+type RowVM = {
+  iso: string;
+  published: boolean;
+  capacity: number;
+  currentBookings: number;
+};
 
-const TradingDaysPage: React.FC = () => {
-  // current calendar view
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1); // 1..12
+export default function TradingDaysPage() {
+  const today = new Date();
+  const [year, setYear] = useState<number>(today.getFullYear());
+  const [month, setMonth] = useState<number>(today.getMonth() + 1); // 1..12
+  const [rows, setRows] = useState<RowVM[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [savingIso, setSavingIso] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // data
-  const [published, setPublished] = useState<TradingDay[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
+  const monthKey = `${year}-${month}`;
 
-  // selection for new publishes
-  const [selectedDraft, setSelectedDraft] = useState<Set<string>>(new Set());
-  const [draftCapacity, setDraftCapacity] = useState<number>(90);
-
-  // focus a published day to edit/unpublish
-  const [focusIso, setFocusIso] = useState<string | null>(null);
-  const focusedDay = useMemo(
-    () => published.find((d) => d.id === focusIso) ?? null,
-    [published, focusIso]
-  );
-
-  const monthSaturdays = useMemo(
-    () => saturdaysInMonth(year, month),
-    [year, month]
-  );
-
-  const publishedMap = useMemo(() => {
-    const m = new Map<string, TradingDay>();
-    for (const d of published) m.set(d.id, d);
-    return m;
-  }, [published]);
+  const saturdayIsos = useMemo(() => saturdaysOfMonth(year, month), [year, month]);
 
   async function refresh() {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setErr(null);
-      const days = await getDaysForMonth(year, month);
-      setPublished(days);
-    } catch (e) {
-      setErr("Failed to load trading days.");
+      const published = await getDaysForMonth(year, month);
+      const byIso = new Map<string, TradingDay>();
+      for (const d of published) byIso.set(d.date, d);
+
+      const vm: RowVM[] = saturdayIsos.map((iso) => {
+        const found = byIso.get(iso);
+        return {
+          iso,
+          published: !!found,
+          capacity: found?.maxBookings ?? 90,
+          currentBookings: found?.currentBookings ?? 0,
+        };
+      });
+
+      setRows(vm);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to load trading days.");
     } finally {
       setLoading(false);
     }
@@ -84,216 +81,178 @@ const TradingDaysPage: React.FC = () => {
 
   useEffect(() => {
     refresh();
-    // clear UI selections when changing months
-    setSelectedDraft(new Set());
-    setFocusIso(null);
-  }, [year, month]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthKey]);
 
   function prevMonth() {
-    if (month === 1) {
-      setYear((y) => y - 1);
-      setMonth(12);
-    } else {
-      setMonth((m) => m - 1);
-    }
+    const d = new Date(year, month - 2, 1);
+    setYear(d.getFullYear());
+    setMonth(d.getMonth() + 1);
   }
-
   function nextMonth() {
-    if (month === 12) {
-      setYear((y) => y + 1);
-      setMonth(1);
-    } else {
-      setMonth((m) => m + 1);
+    const d = new Date(year, month, 1);
+    setYear(d.getFullYear());
+    setMonth(d.getMonth() + 1);
+  }
+
+  async function handlePublish(iso: string, capacity: number) {
+    setSavingIso(iso);
+    setError(null);
+    try {
+      await publishDays([iso], capacity);
+      await refresh();
+    } catch (e: any) {
+      setError(e?.message ?? "Publish failed.");
+    } finally {
+      setSavingIso(null);
     }
   }
 
-  function toggleDraft(iso: string) {
-    const copy = new Set(selectedDraft);
-    if (copy.has(iso)) copy.delete(iso);
-    else copy.add(iso);
-    setSelectedDraft(copy);
-    // if you click a not-published day, remove any focus on a published one
-    setFocusIso(null);
+  async function handleUnpublish(iso: string) {
+    setSavingIso(iso);
+    setError(null);
+    try {
+      await unpublishDay(iso);
+      await refresh();
+    } catch (e: any) {
+      setError(e?.message ?? "Unpublish failed.");
+    } finally {
+      setSavingIso(null);
+    }
   }
 
-  async function handlePublish() {
-    const toPublish = Array.from(selectedDraft);
-    if (toPublish.length === 0) return;
-    await publishDays(toPublish, draftCapacity);
-    setSelectedDraft(new Set());
-    await refresh();
+  async function handleSaveCapacity(iso: string, capacity: number) {
+    setSavingIso(iso);
+    setError(null);
+    try {
+      await setCapacity(iso, capacity);
+      await refresh();
+    } catch (e: any) {
+      setError(e?.message ?? "Save capacity failed.");
+    } finally {
+      setSavingIso(null);
+    }
   }
 
-  async function handleSaveCapacity() {
-    if (!focusIso || !focusedDay) return;
-    if (focusedDay.maxBookings === draftCapacity) return;
-    await setCapacity(focusIso, draftCapacity);
-    await refresh();
+  function updateCapacity(iso: string, val: number) {
+    setRows((old) =>
+      old.map((r) => (r.iso === iso ? { ...r, capacity: val } : r))
+    );
   }
-
-  async function handleUnpublish() {
-    if (!focusIso) return;
-    await unpublishDay(focusIso);
-    setFocusIso(null);
-    await refresh();
-  }
-
-  // keep the right-side capacity field in sync with the focused day
-  useEffect(() => {
-    if (focusedDay) setDraftCapacity(focusedDay.maxBookings);
-  }, [focusedDay]);
 
   return (
-    <div className="p-6 grid grid-cols-1 lg:grid-cols-[1fr,340px] gap-6">
-      <Card
-        title={
-          <div className="flex items-center gap-3">
-            <button
-              onClick={prevMonth}
-              className="px-2 py-1 rounded border border-slate-300 hover:bg-slate-50"
-            >
-              ‹
-            </button>
-            <span>{monthName(year, month)}</span>
-            <button
-              onClick={nextMonth}
-              className="px-2 py-1 rounded border border-slate-300 hover:bg-slate-50"
-            >
-              ›
-            </button>
-          </div>
-        }
-      >
-        {loading ? (
-          <p>Loading…</p>
-        ) : err ? (
-          <p className="text-red-600">{err}</p>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3">
-            {monthSaturdays.map((iso) => {
-              const pub = publishedMap.get(iso);
-              const isSelected = selectedDraft.has(iso);
+    <div className="p-6 max-w-4xl mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-semibold">Trading Days</h1>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={prevMonth}
+            className="px-3 py-1 rounded bg-slate-200 hover:bg-slate-300"
+            disabled={loading}
+          >
+            ◀ Prev
+          </button>
+          <div className="font-medium">{monthLabel(year, month)}</div>
+          <button
+            onClick={nextMonth}
+            className="px-3 py-1 rounded bg-slate-200 hover:bg-slate-300"
+            disabled={loading}
+          >
+            Next ▶
+          </button>
+        </div>
+      </div>
 
-              let classes =
-                "p-3 rounded-lg border text-sm cursor-pointer select-none";
-              if (pub) {
-                classes +=
-                  " border-green-300 bg-green-50 hover:bg-green-100 text-green-900";
-              } else if (isSelected) {
-                classes +=
-                  " border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-900";
-              } else {
-                classes +=
-                  " border-slate-300 bg-white hover:bg-slate-50 text-slate-700";
-              }
+      {error && (
+        <div className="mb-3 rounded bg-red-50 text-red-700 px-3 py-2 text-sm">
+          {error}
+        </div>
+      )}
 
+      <div className="overflow-x-auto rounded border border-slate-200 bg-white">
+        <table className="min-w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="text-left p-3">Date (Saturday)</th>
+              <th className="text-left p-3">Status</th>
+              <th className="text-left p-3">Capacity</th>
+              <th className="text-left p-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const disabled = savingIso === r.iso || loading;
               return (
-                <div
-                  key={iso}
-                  className={classes}
-                  onClick={() => {
-                    if (pub) {
-                      setFocusIso(iso);
-                      setSelectedDraft(new Set());
-                    } else {
-                      toggleDraft(iso);
-                    }
-                  }}
-                >
-                  <div className="font-semibold">{iso}</div>
-                  {pub ? (
-                    <div className="text-xs mt-1">
-                      Capacity: {pub.currentBookings} / {pub.maxBookings}
+                <tr key={r.iso} className="border-t">
+                  <td className="p-3">{r.iso}</td>
+                  <td className="p-3">
+                    {r.published ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-green-700 bg-green-50">
+                        Published
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-slate-700 bg-slate-50">
+                        Unpublished
+                      </span>
+                    )}
+                  </td>
+                  <td className="p-3">
+                    <input
+                      type="number"
+                      min={1}
+                      className="w-24 rounded border px-2 py-1"
+                      value={r.capacity}
+                      onChange={(e) => updateCapacity(r.iso, Number(e.target.value))}
+                      disabled={disabled}
+                    />
+                  </td>
+                  <td className="p-3">
+                    <div className="flex gap-2">
+                      {r.published ? (
+                        <>
+                          <button
+                            onClick={() => handleSaveCapacity(r.iso, r.capacity)}
+                            disabled={disabled}
+                            className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                          >
+                            Save capacity
+                          </button>
+                          <button
+                            onClick={() => handleUnpublish(r.iso)}
+                            disabled={disabled}
+                            className="px-3 py-1 rounded bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+                          >
+                            Unpublish
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => handlePublish(r.iso, r.capacity)}
+                          disabled={disabled}
+                          className="px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                        >
+                          Publish
+                        </button>
+                      )}
                     </div>
-                  ) : (
-                    <div className="text-xs mt-1 text-slate-500">
-                      Not published
-                    </div>
-                  )}
-                </div>
+                  </td>
+                </tr>
               );
             })}
-          </div>
-        )}
-      </Card>
-
-      <div className="space-y-6">
-        <Card title="Publish new days">
-          <div className="space-y-3">
-            <div className="text-sm">
-              Selected: <strong>{selectedDraft.size}</strong>
-            </div>
-            <label className="text-sm block">
-              Stall capacity
-              <input
-                type="number"
-                min={1}
-                className="mt-1 w-full border rounded px-3 py-2"
-                value={draftCapacity}
-                onChange={(e) => setDraftCapacity(Math.max(1, +e.target.value))}
-              />
-            </label>
-            <button
-              disabled={selectedDraft.size === 0}
-              onClick={handlePublish}
-              className="px-3 py-2 rounded bg-sky-600 text-white disabled:opacity-50"
-            >
-              Publish selected
-            </button>
-          </div>
-        </Card>
-
-        <Card title="Manage published day">
-          {focusedDay ? (
-            <div className="space-y-3">
-              <div className="text-sm">
-                <div>Date: <strong>{focusedDay.date}</strong></div>
-                <div>
-                  Bookings:{" "}
-                    <strong>
-                      {focusedDay.currentBookings} / {focusedDay.maxBookings}
-                    </strong>
-                </div>
-              </div>
-
-              <label className="text-sm block">
-                Capacity
-                <input
-                  type="number"
-                  min={1}
-                  className="mt-1 w-full border rounded px-3 py-2"
-                  value={draftCapacity}
-                  onChange={(e) =>
-                    setDraftCapacity(Math.max(1, +e.target.value))
-                  }
-                />
-              </label>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={handleSaveCapacity}
-                  className="px-3 py-2 rounded bg-emerald-600 text-white"
-                >
-                  Save capacity
-                </button>
-                <button
-                  onClick={handleUnpublish}
-                  className="px-3 py-2 rounded bg-red-600 text-white"
-                >
-                  Unpublish
-                </button>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-slate-500">
-              Click a <span className="font-semibold">published</span> Saturday
-              in the calendar to edit or unpublish it.
-            </p>
-          )}
-        </Card>
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={4} className="p-6 text-center text-slate-500">
+                  No Saturdays this month (unexpected)—try another month.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
+
+      {(loading || savingIso) && (
+        <div className="mt-3 text-sm text-slate-500">Working…</div>
+      )}
     </div>
   );
-};
-
-export default TradingDaysPage;
+}
