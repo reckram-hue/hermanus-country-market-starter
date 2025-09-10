@@ -7,12 +7,7 @@ export default defineConfig(({ mode }) => ({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      strategies: 'injectManifest',
-      srcDir: 'public',
-      filename: 'sw.js',
-      injectManifest: {
-        swSrc: 'public/sw.js',
-        swDest: 'sw.js',
+      workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}']
       }
     })
