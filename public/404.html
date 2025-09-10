@@ -2,21 +2,12 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Redirecting…</title>
-    <meta http-equiv="refresh" content="0; url=./?/" />
-  </head>
-  <body>
+    <meta http-equiv="refresh" content="0; url=/hermanus-country-market-starter/" />
     <script>
-      // SPA GitHub Pages redirect (rafgraph/spa-github-pages pattern)
-      var segmentCount = 1; // username.github.io/<repo>
-      var l = window.location;
-      l.replace(
-        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
-        l.pathname.split('/').slice(0, 1 + segmentCount).join('/') + '/?/' +
-        l.pathname.slice(1).split('/').slice(segmentCount).join('/').replace(/&/g, '~and~') +
-        (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') +
-        l.hash
-      );
+      // Preserve deep link path so the app can read it if needed
+      sessionStorage.redirect = location.pathname + location.search + location.hash;
+      location.replace("/hermanus-country-market-starter/");
     </script>
-  </body>
+  </head>
+  <body></body>
 </html>

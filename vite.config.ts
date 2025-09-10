@@ -1,11 +1,12 @@
-// vite.config.ts
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
 
-// Minimal config for GitHub Pages. If there was a PWA plugin before,
-// we can re-add later; keep this focused on deployment.
-export default defineConfig({
-  // IMPORTANT for GitHub Pages (repo path)
-  base: '/hermanus-country-market-starter/',
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
-})
+  // Use repo subpath in production (GitHub Pages), root in dev
+  base: mode === "development" ? "/" : "/hermanus-country-market-starter/",
+  test: {
+    globals: true,
+    environment: "jsdom",
+  },
+}))
